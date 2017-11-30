@@ -1,32 +1,42 @@
 <?php
-
-class AccessTokenAuthentication {
-    /*
-     * Get the access token.
-     *
-     * @param string $azure_key    Subscription key for Text Translation API.
-     *
-     * @return string.
-     */
-    function getToken($azure_key)
-    {
-        $url = 'https://api.cognitive.microsoft.com/sts/v1.0/issueToken';
-        $ch = curl_init();
-        $data_string = json_encode('{body}');
-        curl_setopt($ch, CURLOPT_POSTFIELDS, $data_string);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, array(
-                'Content-Type: application/json',
-                'Content-Length: ' . strlen($data_string),
-                'Ocp-Apim-Subscription-Key: ' . $azure_key
-            )
-        );
-        curl_setopt($ch, CURLOPT_URL, $url);
-        curl_setopt($ch, CURLOPT_HEADER, false);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE);
-        $strResponse = curl_exec($ch);
-        curl_close($ch);
-        return $strResponse;
+/*
+ * Create and execute the HTTP CURL request.
+ *
+ * @param string $url        HTTP Url.
+ * @param string $authHeader Authorization Header string.
+ * @param string $postData   Data to post.
+ *
+ * @return string.
+ *
+ */
+function curlRequest($url, $authHeader, $postData=''){
+    //Initialize the Curl Session.
+    $ch = curl_init();
+    //Set the Curl url.
+    curl_setopt ($ch, CURLOPT_URL, $url);
+    //Set the HTTP HEADER Fields.
+    curl_setopt ($ch, CURLOPT_HTTPHEADER, array($authHeader,"Content-Type: text/xml"));
+    //CURLOPT_RETURNTRANSFER- TRUE to return the transfer as a string of the return value of curl_exec().
+    curl_setopt ($ch, CURLOPT_RETURNTRANSFER, TRUE);
+    //CURLOPT_SSL_VERIFYPEER- Set FALSE to stop cURL from verifying the peer's certificate.
+    curl_setopt ($ch, CURLOPT_SSL_VERIFYPEER, FALSE);
+    if($postData) {
+        //Set HTTP POST Request.
+        curl_setopt($ch, CURLOPT_POST, TRUE);
+        //Set data to POST in HTTP "POST" Operation.
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $postData);
     }
+    //Execute the  cURL session.
+    $curlResponse = curl_exec($ch);
+    //Get the Error Code returned by Curl.
+    $curlErrno = curl_errno($ch);
+    if ($curlErrno) {
+        $curlError = curl_error($ch);
+        throw new Exception($curlError);
+    }
+    //Close a cURL session.
+    curl_close($ch);
+    return $curlResponse;
 }
 
 /*
@@ -34,7 +44,7 @@ class AccessTokenAuthentication {
  *
  * Processing the translator request.
  */
-Class HTTPTranslator {
+class HTTPTranslator {
     /*
      * Create and execute the HTTP CURL request.
      *
@@ -55,100 +65,58 @@ Class HTTPTranslator {
         //CURLOPT_RETURNTRANSFER- TRUE to return the transfer as a string of the return value of curl_exec().
         curl_setopt ($ch, CURLOPT_RETURNTRANSFER, TRUE);
         //CURLOPT_SSL_VERIFYPEER- Set FALSE to stop cURL from verifying the peer's certificate.
-        curl_setopt ($ch, CURLOPT_SSL_VERIFYPEER, False);
+        curl_setopt ($ch, CURLOPT_SSL_VERIFYPEER, FALSE);
         //Execute the  cURL session.
         $curlResponse = curl_exec($ch);
         //Get the Error Code returned by Curl.
         $curlErrno = curl_errno($ch);
         if ($curlErrno) {
             $curlError = curl_error($ch);
+            echo "CURL Error # ".$curlErrno." => ".$curlError."<br />";
             throw new Exception($curlError);
-        }
+        }//if
         //Close a cURL session.
         curl_close($ch);
         return $curlResponse;
     }
 }
 
-try {
-    //Client Secret key of the application.
-    $clientSecret = "ClientSecret";
+function AzureTranslate($key1, $lang_source='en', $lang_target='fr', $text_to_translate_in_lang_source){
+    $translatedStr = NULL;
+    try {
+        //Pass the KEY1 by header without Access Token
+        $authHeader = "Ocp-Apim-Subscription-Key: ". $key1;//Grap your key from Azure Portal => [KEY1]
+        //Set the params.//
+        //List of LANG CODES => https://msdn.microsoft.com/en-us/library/hh456380.aspx
+        $fromLanguage = $lang_source;
+        $toLanguage   = $lang_target;
+        $inputStr     = $text_to_translate_in_lang_source;
+        $contentType  = 'text/plain';
+        $category     = 'general';
+        
+        $params = "text=".urlencode($inputStr)."&to=".$toLanguage."&from=".$fromLanguage."&contentType=".$contentType."&category=".$category;
+        $translateUrl = "https://api.microsofttranslator.com/v2/Http.svc/Translate?$params";
+        
+        //Create the Translator Object.
+        $translatorObj = new HTTPTranslator();
+        
+        //Get the curlResponse.
+        $curlResponse = $translatorObj->curlRequest($translateUrl, $authHeader);
 
-    //Create the AccessTokenAuthentication object.
-    $authObj      = new AccessTokenAuthentication();
-    //Get the Access token.
-    $accessToken  = $authObj->getToken($clientSecret);
-    //Create the authorization Header string.
-    $authHeader = "Authorization: Bearer ". $accessToken;
-
-    //Set the params.//
-    $fromLanguage = "en";
-    $toLanguage   = "de";
-    $inputStr     = "the best machine translation technology cannot always provide translations tailored to a site or users like a human";
-    $contentType  = 'text/plain';
-    $category     = 'general';
-    
-    $params = "text=".urlencode($inputStr)."&to=".$toLanguage."&from=".$fromLanguage;
-    $translateUrl = "https://api.microsofttranslator.com/v2/Http.svc/Translate?$params";
-    
-    //Create the Translator Object.
-    $translatorObj = new HTTPTranslator();
-    
-    //Get the curlResponse.
-    $curlResponse = $translatorObj->curlRequest($translateUrl, $authHeader);
-    
-    //Interprets a string of XML into an object.
-    $xmlObj = simplexml_load_string($curlResponse);
-    foreach((array)$xmlObj[0] as $val){
-        $translatedStr = $val;
-    }
-    echo "<table border=2px>";
-    echo "<tr>";
-    echo "<td><b>From $fromLanguage</b></td><td><b>To $toLanguage</b></td>";
-    echo "</tr>";
-    echo "<tr><td>".$inputStr."</td><td>".$translatedStr."</td></tr>";
-    echo "</table>";
-} catch (Exception $e) {
-    echo "Exception: " . $e->getMessage() . PHP_EOL;
-}
-
-
-/*
- * Create and execute the HTTP CURL request.
- * 
- * @param string $url        HTTP Url.
- * @param string $authHeader Authorization Header string.
- * @param string $postData   Data to post.
- *
- * @return string.
- *
- */
-function curlRequest($url, $authHeader, $postData=''){
-    //Initialize the Curl Session.
-    $ch = curl_init();
-    //Set the Curl url.
-    curl_setopt ($ch, CURLOPT_URL, $url);
-    //Set the HTTP HEADER Fields.
-    curl_setopt ($ch, CURLOPT_HTTPHEADER, array($authHeader,"Content-Type: text/xml"));
-    //CURLOPT_RETURNTRANSFER- TRUE to return the transfer as a string of the return value of curl_exec().
-    curl_setopt ($ch, CURLOPT_RETURNTRANSFER, TRUE);
-    //CURLOPT_SSL_VERIFYPEER- Set FALSE to stop cURL from verifying the peer's certificate.
-    curl_setopt ($ch, CURLOPT_SSL_VERIFYPEER, False);
-    if($postData) {
-        //Set HTTP POST Request.
-        curl_setopt($ch, CURLOPT_POST, TRUE);
-        //Set data to POST in HTTP "POST" Operation.
-        curl_setopt($ch, CURLOPT_POSTFIELDS, $postData);
-    }
-    //Execute the  cURL session. 
-    $curlResponse = curl_exec($ch);
-    //Get the Error Code returned by Curl.
-    $curlErrno = curl_errno($ch);
-    if ($curlErrno) {
-        $curlError = curl_error($ch);
-        throw new Exception($curlError);
-    }
-    //Close a cURL session.
-    curl_close($ch);
-    return $curlResponse;
+        //Interprets a string of XML into an object.
+        $xmlObj = simplexml_load_string($curlResponse);
+        foreach((array)$xmlObj[0] as $val){
+            $translatedStr = $val;
+        }//foreach
+        echo "<table border=2px>";
+        echo "<tr>";
+        echo "<td><b>From $fromLanguage</b></td><td><b>To $toLanguage</b></td>";
+        echo "</tr>";
+        echo "<tr><td>".$inputStr."</td><td>".$translatedStr."</td></tr>";
+        echo "</table>";
+    }//try
+    catch (Exception $e) {
+        echo "Exception: " . $e->getMessage() . PHP_EOL;
+    }//catch
+    return $translatedStr;
 }
